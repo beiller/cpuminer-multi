@@ -77,7 +77,8 @@ struct workio_cmd {
 };
 
 enum algos {
-	ALGO_CRYPTONIGHT /* CryptoNight */
+	ALGO_CRYPTONIGHT, /* CryptoNight */
+	ALGO_COUNT
 };
 
 static const char *algo_names[] = {
@@ -1024,6 +1025,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 			}
 			json_decref(val);
 			return true;
+		}
 
 		adata_sz = data_size / sizeof(uint32_t);
 
@@ -2687,6 +2689,14 @@ int main(int argc, char *argv[]) {
 		opt_n_threads = num_cpus;
 	if (!opt_n_threads)
 		opt_n_threads = 1;
+
+	jsonrpc_2 = true;
+	opt_extranonce = false;
+	aes_ni_supported = has_aes_ni();
+	if (!opt_quiet) {
+		applog(LOG_INFO, "Using JSON-RPC 2.0");
+		applog(LOG_INFO, "CPU Supports AES-NI: %s", aes_ni_supported ? "YES" : "NO");
+	}
 
 	jsonrpc_2 = true;
 	opt_extranonce = false;
