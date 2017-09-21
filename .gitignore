@@ -1,9 +1,7 @@
-minerd*
-cpuminer
-*.exe
+
+minerd
+minerd.exe
 *.o
-*.d
-gmon.out
 
 autom4te.cache
 .deps
@@ -28,24 +26,5 @@ config.sub
 
 mingw32-config.cache
 
-*/.dirstamp
 
 *.iml
-
-*.vcxproj.user
-*.opensdf
-*.sdf
-*.suo
-Release/
-Debug/
-x64/Release/
-x64/Debug/
-*.pdb/
-
-installer/
-res/cpuminer.aps
-res/RC*
-sign/
-sign.sh
-
-compat/curl-for-windows/
