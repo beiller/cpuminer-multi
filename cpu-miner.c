@@ -57,44 +57,9 @@
 #include <sys/mman.h>
 #endif
 
-#ifdef __linux /* Linux specific policy and affinity management */
-#include <sched.h>
-static inline void drop_policy(void) {
-    struct sched_param param;
-    param.sched_priority = 0;
-	
-	sched_setscheduler(0, SCHED_OTHER, &param);
-}
-
-static inline void affine_to_cpu(int id, int cpu) {
-    cpu_set_t set;
-
-    CPU_ZERO(&set);
-    CPU_SET(cpu, &set);
-    sched_setaffinity(0, sizeof(set), &set);
-}
-#elif defined(__FreeBSD__) /* FreeBSD specific policy and affinity management */
-#include <sys/cpuset.h>
 static inline void drop_policy(void)
 {
 }
-
-static inline void affine_to_cpu(int id, int cpu)
-{
-    cpuset_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu, &set);
-    cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset_t), &set);
-}
-#else
-static inline void drop_policy(void)
-{
-}
-
-static inline void affine_to_cpu(int id, int cpu)
-{
-}
-#endif
 
 #define MAX_THREADS	256
 
@@ -866,15 +831,6 @@ static void *miner_thread(void *userdata) {
     }
 	#endif
 	
-    /* Cpu affinity only makes sense if the number of threads is a multiple
-     * of the number of CPUs */
-    /*if (num_processors > 1 && opt_n_threads % num_processors == 0) {
-        if (!opt_quiet)
-            applog(LOG_INFO, "Binding thread %d to cpu %d", thr_id,
-                    thr_id % num_processors);
-        affine_to_cpu(thr_id, thr_id % num_processors);
-    }*/
-    
 	persistentctx = persistentctxs[thr_id];
 	if(!persistentctx)
 	{
@@ -1259,33 +1215,6 @@ static void show_usage_and_exit(int status) {
     exit(status);
 }
 
-#ifndef WIN32
-static void signal_handler(int sig) {
-	int i;
-    switch (sig) {
-    case SIGHUP:
-        applog(LOG_INFO, "SIGHUP received");
-        break;
-    case SIGINT:
-        applog(LOG_INFO, "SIGINT received, exiting");
-        #if defined __unix__ && (!defined __APPLE__)
-		if(opt_algo == ALGO_CRYPTONIGHT)
-			for(i = 0; i < opt_n_threads; i++) munmap(persistentctxs[i], sizeof(struct cryptonight_ctx));
-		#endif
-        exit(0);
-        break;
-    case SIGTERM:
-        applog(LOG_INFO, "SIGTERM received, exiting");
-        #if defined __unix__ && (!defined __APPLE__)
-		if(opt_algo == ALGO_CRYPTONIGHT)
-			for(i = 0; i < opt_n_threads; i++) munmap(persistentctxs[i], sizeof(struct cryptonight_ctx));
-		#endif
-        exit(0);
-        break;
-    }
-}
-#endif
-
 int main(int argc, char *argv[]) {
     struct thr_info *thr;
     unsigned int tmp1, tmp2, tmp3, tmp4;
@@ -1328,40 +1257,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-#ifndef WIN32
-    if (opt_background) {
-        i = fork();
-        if (i < 0)
-            exit(1);
-        if (i > 0)
-            exit(0);
-        i = setsid();
-        if (i < 0)
-            applog(LOG_ERR, "setsid() failed (errno = %d)", errno);
-        i = chdir("/");
-        if (i < 0)
-            applog(LOG_ERR, "chdir() failed (errno = %d)", errno);
-        signal(SIGHUP, signal_handler);
-        signal(SIGINT, signal_handler);
-        signal(SIGTERM, signal_handler);
-    }
-#endif
-
-#if defined(WIN32)
-    SYSTEM_INFO sysinfo;
-    GetSystemInfo(&sysinfo);
-    num_processors = sysinfo.dwNumberOfProcessors;
-#elif defined(_SC_NPROCESSORS_CONF)
-    num_processors = sysconf(_SC_NPROCESSORS_CONF);
-#elif defined(CTL_HW) && defined(HW_NCPU)
-    int req[] = {CTL_HW, HW_NCPU};
-    size_t len = sizeof(num_processors);
-    sysctl(req, 2, &num_processors, &len, NULL, 0);
-#else
     num_processors = 1;
-#endif
-    if (num_processors < 1)
-        num_processors = 1;
     if (!opt_n_threads)
         opt_n_threads = (num_processors == 1) ? num_processors : num_processors - 1;
 
