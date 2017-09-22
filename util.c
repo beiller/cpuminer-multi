@@ -22,15 +22,10 @@
 #include <jansson.h>
 #include <curl/curl.h>
 #include <time.h>
-#if defined(WIN32)
-#include <winsock2.h>
-#include <mstcpip.h>
-#else
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#endif
 #include "compat.h"
 #include "miner.h"
 #include "elist.h"
@@ -72,50 +67,33 @@ void applog(int prio, const char *fmt, ...)
 
 	va_start(ap, fmt);
 
-#ifdef HAVE_SYSLOG_H
-	if (use_syslog) {
-		va_list ap2;
-		char *buf;
-		int len;
-		
-		va_copy(ap2, ap);
-		len = vsnprintf(NULL, 0, fmt, ap2) + 1;
-		va_end(ap2);
-		buf = alloca(len);
-		if (vsnprintf(buf, len, fmt, ap) >= 0)
-			syslog(prio, "%s", buf);
-	}
-#else
-	if (0) {}
-#endif
-	else {
-		char *f;
-		int len;
-		time_t now;
-		struct tm tm, *tm_p;
+	char *f;
+	int len;
+	time_t now;
+	struct tm tm, *tm_p;
 
-		time(&now);
+	time(&now);
 
-		pthread_mutex_lock(&applog_lock);
-		tm_p = localtime(&now);
-		memcpy(&tm, tm_p, sizeof(tm));
-		pthread_mutex_unlock(&applog_lock);
+	pthread_mutex_lock(&applog_lock);
+	tm_p = localtime(&now);
+	memcpy(&tm, tm_p, sizeof(tm));
+	pthread_mutex_unlock(&applog_lock);
 
-		len = 40 + strlen(fmt) + 2;
-		f = alloca(len);
-		sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d] %s\n",
-			tm.tm_year + 1900,
-			tm.tm_mon + 1,
-			tm.tm_mday,
-			tm.tm_hour,
-			tm.tm_min,
-			tm.tm_sec,
-			fmt);
-		pthread_mutex_lock(&applog_lock);
-		vfprintf(stderr, f, ap);	/* atomic write to stderr */
-		fflush(stderr);
-		pthread_mutex_unlock(&applog_lock);
-	}
+	len = 40 + strlen(fmt) + 2;
+	f = alloca(len);
+	sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d] %s\n",
+		tm.tm_year + 1900,
+		tm.tm_mon + 1,
+		tm.tm_mday,
+		tm.tm_hour,
+		tm.tm_min,
+		tm.tm_sec,
+		fmt);
+	pthread_mutex_lock(&applog_lock);
+	vfprintf(stderr, f, ap);	/* atomic write to stderr */
+	fflush(stderr);
+	pthread_mutex_unlock(&applog_lock);
+	
 	va_end(ap);
 }
 

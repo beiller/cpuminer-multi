@@ -943,6 +943,112 @@ static void restart_threads(void) {
         work_restart[i].restart = 1;
 }
 
+static void *longpoll_thread(void *userdata) {
+    struct thr_info *mythr = userdata;
+    CURL *curl = NULL;
+    char *copy_start, *hdr_path = NULL, *lp_url = NULL;
+    bool need_slash = false;
+
+    curl = curl_easy_init();
+    if (unlikely(!curl)) {
+        applog(LOG_ERR, "CURL initialization failed");
+        goto out;
+    }
+
+    start: hdr_path = tq_pop(mythr->q, NULL );
+    if (!hdr_path)
+        goto out;
+
+    /* full URL */
+    if (strstr(hdr_path, "://")) {
+        lp_url = hdr_path;
+        hdr_path = NULL;
+    }
+
+    /* absolute path, on current server */
+    else {
+        copy_start = (*hdr_path == '/') ? (hdr_path + 1) : hdr_path;
+        if (rpc_url[strlen(rpc_url) - 1] != '/')
+            need_slash = true;
+
+        lp_url = malloc(strlen(rpc_url) + strlen(copy_start) + 2);
+        if (!lp_url)
+            goto out;
+
+        sprintf(lp_url, "%s%s%s", rpc_url, need_slash ? "/" : "", copy_start);
+    }
+
+    applog(LOG_INFO, "Long-polling activated for %s", lp_url);
+
+    while (1) {
+        json_t *val, *soval;
+        int err;
+
+        if(jsonrpc_2) {
+            pthread_mutex_lock(&rpc2_login_lock);
+            if(!strcmp(rpc2_id, "")) {
+                sleep(1);
+                continue;
+            }
+            char s[128];
+            snprintf(s, 128, "{\"method\": \"getjob\", \"params\": {\"id\": \"%s\"}, \"id\":1}\r\n", rpc2_id);
+            pthread_mutex_unlock(&rpc2_login_lock);
+            val = json_rpc2_call(curl, rpc_url, rpc_userpass, s, &err, JSON_RPC_LONGPOLL);
+        } else {
+            val = json_rpc_call(curl, rpc_url, rpc_userpass, rpc_req, &err, JSON_RPC_LONGPOLL);
+        }
+        if (have_stratum) {
+            if (val)
+                json_decref(val);
+            goto out;
+        }
+        if (likely(val)) {
+            if (!jsonrpc_2) {
+                soval = json_object_get(json_object_get(val, "result"),
+                        "submitold");
+                submit_old = soval ? json_is_true(soval) : false;
+            }
+            pthread_mutex_lock(&g_work_lock);
+            char *start_job_id = strdup(g_work.job_id);
+            if (work_decode(json_object_get(val, "result"), &g_work)) {
+                if (strcmp(start_job_id, g_work.job_id)) {
+                    applog(LOG_INFO, "LONGPOLL detected new block");
+                    if (opt_debug)
+                        applog(LOG_DEBUG, "DEBUG: got new work");
+                    time(&g_work_time);
+                    restart_threads();
+                }
+            }
+            free(start_job_id);
+            pthread_mutex_unlock(&g_work_lock);
+            json_decref(val);
+        } else {
+            pthread_mutex_lock(&g_work_lock);
+            g_work_time -= LP_SCANTIME;
+            pthread_mutex_unlock(&g_work_lock);
+            if (err == CURLE_OPERATION_TIMEDOUT) {
+                restart_threads();
+            } else {
+                have_longpoll = false;
+                restart_threads();
+                free(hdr_path);
+                free(lp_url);
+                lp_url = NULL;
+                sleep(opt_fail_pause);
+                goto start;
+            }
+        }
+    }
+
+    out: free(hdr_path);
+    free(lp_url);
+    tq_freeze(mythr->q);
+    if (curl)
+        curl_easy_cleanup(curl);
+
+    return NULL ;
+}
+
 static bool stratum_handle_response(char *buf) {
     json_t *val, *err_val, *res_val, *id_val;
     json_error_t err;
@@ -1183,6 +1289,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    if (want_longpoll && !have_stratum) {
+        /* init longpoll thread info */
+        longpoll_thr_id = opt_n_threads + 1;
+        thr = &thr_info[longpoll_thr_id];
+        thr->id = longpoll_thr_id;
+        thr->q = tq_new();
+        if (!thr->q)
+            return 1;
+
+        /* start longpoll thread */
+        if (unlikely(pthread_create(&thr->pth, NULL, longpoll_thread, thr))) {
+            applog(LOG_ERR, "longpoll thread create failed");
+            return 1;
+        }
+    }
     if (want_stratum) {
         /* init stratum thread info */
         stratum_thr_id = opt_n_threads + 2;

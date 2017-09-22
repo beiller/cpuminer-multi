@@ -37,9 +37,6 @@ void *alloca (size_t);
 # endif
 #endif
 
-#ifdef HAVE_SYSLOG_H
-#include <syslog.h>
-#else
 enum {
 	LOG_ERR,
 	LOG_WARNING,
@@ -47,7 +44,6 @@ enum {
 	LOG_INFO,
 	LOG_DEBUG,
 };
-#endif
 
 #undef unlikely
 #undef likely
