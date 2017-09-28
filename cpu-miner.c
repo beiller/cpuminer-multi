@@ -723,9 +723,6 @@ static void *miner_thread(void *userdata) {
         int64_t max64;
         int rc;
 
-
-        while (!jsonrpc_2 && time(NULL) >= g_work_time + 120)
-            sleep(1);
         pthread_mutex_lock(&g_work_lock);
         if ((*nonceptr) >= end_nonce
        	    && !(jsonrpc_2 ? memcmp(work.data, g_work.data, 39) ||
@@ -815,7 +812,6 @@ static bool stratum_handle_response(char *buf) {
     } else {
         valid = json_is_null(err_val);
     }
-
 
     share_result(valid, NULL,
             err_val ? (jsonrpc_2 ? json_string_value(err_val) : json_string_value(json_array_get(err_val, 1))) : NULL );
@@ -945,6 +941,7 @@ int main(int argc, char *argv[]) {
 	
     rpc_user = strdup("beiller@gmail.com");
     rpc_pass = strdup("PuFskvyVwwz8EU9Q2T3xd7hbhh9T2569");
+    rpc_userpass = strdup("beiller@gmail.com:PuFskvyVwwz8EU9Q2T3xd7hbhh9T2569");
     rpc_url = strdup("tcp://xmr.pool.minergate.com:45560");
     opt_n_threads = 8;
 
@@ -953,13 +950,6 @@ int main(int argc, char *argv[]) {
     if (!opt_benchmark && !rpc_url) {
         fprintf(stderr, "%s: no URL supplied\n", argv[0]);
         show_usage_and_exit(1);
-    }
-
-    if (!rpc_userpass) {
-        rpc_userpass = malloc(strlen(rpc_user) + strlen(rpc_pass) + 2);
-        if (!rpc_userpass)
-            return 1;
-        sprintf(rpc_userpass, "%s:%s", rpc_user, rpc_pass);
     }
 
     pthread_mutex_init(&applog_lock, NULL );
